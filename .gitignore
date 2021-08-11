@@ -15,3 +15,4 @@ scripts/utils.ts
 scripts/Collections.ts
 typechain/
 test/
+abi/build-info
