@@ -1,95 +1,101 @@
-import { expect } from 'chai'
+import chai, { expect } from 'chai'
+import asPromised from 'chai-as-promised'
 import { ethers } from 'hardhat'
 import { BigNumber, Contract, Wallet, Signer, Transaction } from 'ethers'
 import * as dotenv from 'dotenv'
-import { CollectionsABI } from './abi/collections'
+
+chai.use(asPromised)
 
 dotenv.config()
+
+const LOCAL_MEDIA_ADDRESS = process.env.LOCAL_MEDIA_ADDRESS
+const LOCAL_MARKET_ADDRESS = process.env.LOCAL_MARKET_ADDRESS
 
 const LOCAL_DEPLOY = process.env.LOCAL_DEPLOY
 const PROVIDER = new ethers.providers.JsonRpcProvider(LOCAL_DEPLOY)
 
-const ADDRESSES: Record<string, string> = {
+const KEYS: Record<string, string> = {
     DEPLOYER: process.env.DEPLOYER_KEY,
     CREATOR: process.env.CREATOR_KEY,
     BUYER: process.env.BUYER_KEY,
 }
 
-let CollectionsContract: Contract
-let CollectionsContractAddress: string
+let CreatorWallet: Wallet = new Wallet(KEYS.CREATOR, PROVIDER)
+let BuyerWallet: Wallet = new Wallet(KEYS.BUYER, PROVIDER)
 
-let WalletCreator: Wallet
-let WalletBuyer: Wallet
-
-let ContractCreator: Contract
-let ContractBuyer: Contract
+let ContractReadOnly: Contract
+let ContractForCreator: Contract
+let ContractForBuyer: Contract
 
 async function deploy(): Promise<void> {
-    const signer = new ethers.Wallet(ADDRESSES.DEPLOYER, PROVIDER)
+    const signer = new ethers.Wallet(KEYS.DEPLOYER, PROVIDER)
 
     const Collections = await ethers.getContractFactory('Collections')
     const contractWithSigner = Collections.connect(signer)
     const contract = await contractWithSigner.deploy()
     await contract.deployed()
 
-    CollectionsContract = contract
-    CollectionsContractAddress = contract.address.toString()
+    await contract.setMediaAddress(LOCAL_MEDIA_ADDRESS)
+    await contract.setMarketAddress(LOCAL_MARKET_ADDRESS)
 
-    WalletCreator = new Wallet(ADDRESSES.CREATOR, PROVIDER)
-    ContractCreator = CollectionsContract.connect(WalletCreator)
+    const abi = contract.interface
+    const address = contract.address.toString()
 
-    WalletBuyer = new Wallet(ADDRESSES.BUYER, PROVIDER)
-    ContractBuyer = CollectionsContract.connect(WalletBuyer)
+    ContractReadOnly = new ethers.Contract(address, abi, PROVIDER)
+    ContractForCreator = new ethers.Contract(address, abi, CreatorWallet)
+    ContractForBuyer = new ethers.Contract(address, abi, BuyerWallet)
 }
 
 describe('Collections', () => {
     beforeEach(async () => {
         await deploy()
     })
+    describe('Address configuration', () => {
+        it('Should ensure Zora media address is configured correctly', async () => {
+            const mediaContract = await ContractReadOnly.mediaContract()
+            expect(mediaContract).to.equal(LOCAL_MEDIA_ADDRESS)
+        })
+        it('Should ensure Zora market address is configured correctly', async () => {
+            const marketContract = await ContractReadOnly.marketContract()
+            expect(marketContract).to.equal(LOCAL_MARKET_ADDRESS)
+        })
+    })
     describe('Collection creation', () => {
-        const collectionSupply = 10
-        const pricePerNFT = '0.5'
-        const creatorAddressToPay = '0xa3c784F717EFa8d3A44DF80A5d33E734F5c1A7Ee'
-        const mintedZoraTokenId = 0
-
-        const sample_collection = {
-            supply: collectionSupply,
-            price: ethers.utils.parseEther(pricePerNFT),
-            creator: ethers.utils.getAddress(creatorAddressToPay),
-            tokenId: mintedZoraTokenId,
+        const collectionToCreate = {
+            supply: 5,
+            price: ethers.utils.parseEther('0.5'),
+            creator: ethers.utils.getAddress(
+                '0xa3c784F717EFa8d3A44DF80A5d33E734F5c1A7Ee'
+            ),
+            tokenId: 0, // id of token minted on Zora
         }
-        it('Should allow creating a collection of an NFT owned', async () => {
-            expect(async () => {
-                const tx: Transaction = await ContractCreator.createCollection(
-                    sample_collection.supply,
-                    sample_collection.price,
-                    sample_collection.creator,
-                    sample_collection.tokenId
-                )
-            }).to.not.throw()
-        })
-        it('Should prevent creating a collection of an NFT not owned ', async () => {
-            const tx: Transaction = ContractBuyer.createCollection(
-                sample_collection.supply,
-                sample_collection.price,
-                sample_collection.creator,
-                sample_collection.tokenId
+        it('Should allow a creator to create a collection of their owned NFT', async () => {
+            const tx = await ContractForCreator.createCollection(
+                collectionToCreate.supply,
+                collectionToCreate.price,
+                collectionToCreate.creator,
+                collectionToCreate.tokenId
             )
-            await expect(tx).revertedWith('You do not own this token')
+            const collectionCreated = await ContractReadOnly.collections(1)
+
+            expect(collectionCreated.supply).to.equal(collectionToCreate.supply)
+            expect(collectionCreated.price).to.equal(collectionToCreate.price)
+            expect(collectionCreated.creator).to.equal(
+                collectionToCreate.creator
+            )
+            expect(collectionCreated.tokenId).to.equal(
+                collectionToCreate.tokenId
+            )
         })
-    })
-
-    describe('Collection buying', () => {
-        it('Should allow buying from collection with supply remaining', async () => {})
-        it('Should prevent buying from collection that does not exist', async () => {})
-        it('Should prevent buying from collection that has run out', async () => {})
-        it('Should prevent buying from collection with insufficient funds', async () => {})
-    })
-
-    describe('Collection minting', () => {
-        it('Should allow receiving the BidShares of a token purchased', async () => {})
-        it('Should prevent receiving the BidShares of a token not purchased', async () => {})
-        it('Should allow receiving the MediaData of a token purchased', async () => {})
-        it('Should prevent receiving the MediaData of a token not purchased', async () => {})
+        it('Should prevent a buyer from creating a collection of an NFT they do not own', async () => {
+            expect(
+                ContractForBuyer.createCollection(
+                    collectionToCreate.supply,
+                    collectionToCreate.price,
+                    collectionToCreate.creator,
+                    collectionToCreate.tokenId
+                )
+            ).to.be.revertedWith('You do not own this token')
+        })
     })
 })
