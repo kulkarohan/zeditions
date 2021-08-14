@@ -14,7 +14,7 @@ import "./Market.sol";
 contract Collections {
     // ============ Constants ============
 
-    // Contract deployment address
+    // Contract deployer
     address private owner;
     // Zora media address
     address public mediaContract;
@@ -25,12 +25,14 @@ contract Collections {
 
     // Individual collection
     struct Collection {
+        // Address of collection creator
+        address creator;
+        // Address to deposit funds raised
+        address payable depositAddress;
         // Number of NFTs in the collection
         uint256 supply;
         // Price of each NFT
         uint256 price;
-        // Address to pay creator
-        address payable fundsAddress;
         // Token id of media minted on Zora representing this collection
         uint256 zMediaId;
         // Amount of NFTs sold
@@ -57,20 +59,18 @@ contract Collections {
 
     // ============ Events ============
 
-    // Collection creation event
     event CollectionCreated(
         uint256 indexed collectionId,
         uint256 indexed zMediaId,
-        address creator,
+        address indexed creator,
         uint256 supply,
         uint256 price
     );
 
-    // NFT in collection purchased
     event CollectionPurchased(
         uint256 indexed collectionId,
         address indexed buyer,
-        uint256 tokenId
+        uint256 indexed tokenId
     );
 
     // ============ Modifers ============
@@ -97,6 +97,30 @@ contract Collections {
         );
         _;
     }
+    // Only the creator of a collection can withdraw funds
+    modifier onlyCreator(uint256 collectionId) {
+        require(
+            msg.sender == collections[collectionId].creator,
+            "You did not create this collection."
+        );
+        _;
+    }
+
+    modifier onlyValidPurchase(uint256 collectionId) {
+        require(
+            collections[collectionId].supply > 0,
+            "Collection does not exist."
+        );
+        require(
+            collections[collectionId].sold < collections[collectionId].supply,
+            "Collection sold out :("
+        );
+        require(
+            msg.value == collections[collectionId].price,
+            "Must send enough to purchase from this collection."
+        );
+        _;
+    }
 
     // ============ Constructor ============
     constructor() {
@@ -109,19 +133,20 @@ contract Collections {
      * Enables an Zora media owner to create a collection, specifying parameters
      * @param supply number of NFTs to create as part of the collection
      * @param price price to set for each NFT
-     * @param fundsAddress address to receive funds
+     * @param depositAddress address to receive funds
      * @param zMediaId id of media owned on Zora to create collection for
      */
     function createCollection(
         uint256 supply,
         uint256 price,
-        address payable fundsAddress,
+        address payable depositAddress,
         uint256 zMediaId
     ) public onlyMediaOwner(zMediaId) {
         collections[nextCollectionId] = Collection({
+            creator: msg.sender,
+            depositAddress: depositAddress,
             supply: supply,
             price: price,
-            fundsAddress: fundsAddress,
             zMediaId: zMediaId,
             sold: 0
         });
@@ -141,27 +166,17 @@ contract Collections {
      * Enables anyone to own a piece of a collection, specifying parameter
      * @param collectionId id of collection to purchase a piece of
      */
-    function buyCollection(uint256 collectionId) external payable {
-        require(
-            collections[collectionId].supply > 0,
-            "Collection does not exist."
-        );
-        require(
-            collections[collectionId].sold < collections[collectionId].supply,
-            "Collection sold out :("
-        );
-        require(
-            msg.value == collections[collectionId].price,
-            "Must send enough to purchase from this collection."
-        );
-        uint256 tokenId = nextTokenId;
+    function buyCollection(uint256 collectionId)
+        external
+        payable
+        onlyValidPurchase(collectionId)
+    {
+        _storeMediaData(collectionId, nextTokenId);
+        _storeBidShares(collectionId, nextTokenId);
 
-        _storeMediaData(collectionId, tokenId);
-        _storeBidShares(collectionId, tokenId);
+        tokenToBuyer[nextTokenId] = msg.sender;
 
-        tokenToBuyer[tokenId] = msg.sender;
-
-        emit CollectionPurchased(collectionId, msg.sender, tokenId);
+        emit CollectionPurchased(collectionId, msg.sender, nextTokenId);
 
         collections[collectionId].sold++;
         nextTokenId++;
@@ -199,13 +214,16 @@ contract Collections {
      * Enables creator to withdraw funds received for a collection at any time, specifying parameter
      * @param collectionId id of collection to withdraw funds from
      */
-    function withdrawFunds(uint256 collectionId) external {
+    function withdrawFunds(uint256 collectionId)
+        external
+        onlyCreator(collectionId)
+    {
         uint256 amountRemaining = (collections[collectionId].price *
             collections[collectionId].sold) -
             amountWithdrawnToCreator[collectionId];
 
         amountWithdrawnToCreator[collectionId] += amountRemaining;
-        _sendFunds(collections[collectionId].fundsAddress, amountRemaining);
+        _sendFunds(collections[collectionId].depositAddress, amountRemaining);
     }
 
     function setMediaAddress(address mediaAddress) external onlyContractOwner {
@@ -266,13 +284,15 @@ contract Collections {
         tokenToBidShares[userTokenId] = bidShares;
     }
 
-    function _sendFunds(address payable fundsAddress, uint256 amount) private {
+    function _sendFunds(address payable depositAddress, uint256 amount)
+        private
+    {
         require(
             address(this).balance >= amount,
             "Insufficient balance to send"
         );
 
-        (bool success, ) = fundsAddress.call{value: amount}("");
+        (bool success, ) = depositAddress.call{value: amount}("");
         require(success, "Unable to send: creator may have reverted");
     }
 }
