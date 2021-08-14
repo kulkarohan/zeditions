@@ -43,8 +43,8 @@ contract Collections {
     mapping(uint256 => Collection) public collections;
     // Mapping of collection id to amount of funds creator has withdrawn
     mapping(uint256 => uint256) public amountWithdrawnToCreator;
-    // Mapping of token buyer to purchased token id
-    mapping(address => uint256) public buyerToToken;
+    // Mapping of purchased token id to buyer
+    mapping(uint256 => address) public tokenToBuyer;
     // Mapping of token id to media data
     mapping(uint256 => Media.MediaData) private tokenToMediaData;
     // Mapping of token id to bid shares
@@ -76,7 +76,7 @@ contract Collections {
 
     // Only contract deployer can set Zora media and market contract addresses
     modifier onlyContractOwner() {
-        require(msg.sender == _owner);
+        require(msg.sender == _owner, "You did not deploy this contract.");
         _;
     }
 
@@ -84,13 +84,16 @@ contract Collections {
     modifier onlyCreator(uint256 _tokenId) {
         require(
             msg.sender == Media(mediaContract).tokenCreators(_tokenId),
-            "You do not own this token"
+            "You do not own this token."
         );
         _;
     }
     // Only the buyer of a token can receive its generated MediaData and BidShares before minting
     modifier onlyBuyer(uint256 _tokenId) {
-        require(buyerToToken[msg.sender] == _tokenId);
+        require(
+            msg.sender == tokenToBuyer[_tokenId],
+            "You did not buy this token."
+        );
         _;
     }
 
@@ -137,7 +140,11 @@ contract Collections {
      * Enables anyone to own a piece of a collection, specifying parameter
      * @param _collectionId id of collection to purchase a piece of
      */
-    function buyCollection(uint256 _collectionId) external payable {
+    function buyCollection(uint256 _collectionId)
+        external
+        payable
+        returns (uint256)
+    {
         require(
             collections[_collectionId].supply > 0,
             "Collection does not exist."
@@ -150,20 +157,22 @@ contract Collections {
             msg.value == collections[_collectionId].price,
             "Must send enough to purchase from this collection."
         );
-        uint256 tokenId = collections[_collectionId].tokenId;
+        uint256 userTokenId = nextGlobalToken;
 
         // Generate and store token's MediaData for buyer to mint
-        _storeMediaData(tokenId, _collectionId);
+        _storeMediaData(_collectionId, userTokenId);
         // Store token's BidShares for buyer to mint
-        _storeBidShares(tokenId);
+        _storeBidShares(_collectionId, userTokenId);
 
         // Store buyer as owner of this token
-        buyerToToken[msg.sender] = nextGlobalToken;
+        tokenToBuyer[userTokenId] = msg.sender;
 
-        emit CollectionPurchased(_collectionId, msg.sender, nextGlobalToken);
+        emit CollectionPurchased(_collectionId, msg.sender, userTokenId);
 
         collections[_collectionId].sold++;
         nextGlobalToken++;
+
+        return userTokenId;
     }
 
     /**
@@ -216,22 +225,27 @@ contract Collections {
     }
 
     // ============ Private Methods ============
-    function _storeMediaData(uint256 _tokenId, uint256 _collectionId) private {
+    function _storeMediaData(uint256 _collectionId, uint256 _userTokenId)
+        private
+    {
+        uint256 _collectionTokenId = collections[_collectionId].tokenId;
         // Get collection's token uri
-        string memory tokenURI = Media(mediaContract).tokenURI(_tokenId);
+        string memory tokenURI = Media(mediaContract).tokenURI(
+            _collectionTokenId
+        );
         // Get collection's token metadata uri
         string memory tokenMetadataURI = Media(mediaContract).tokenMetadataURI(
-            _tokenId
+            _collectionTokenId
         );
         // Get collection's token metadata hash
         bytes32 tokenMetadataHash = Media(mediaContract).tokenMetadataHashes(
-            _tokenId
+            _collectionTokenId
         );
         // Generate new content hash for token to mint
         bytes32 newContentHash = keccak256(
             // Hash of collection's token id + current amount sold counter + current time
             abi.encode(
-                _tokenId,
+                _collectionTokenId,
                 collections[_collectionId].sold,
                 block.timestamp
             )
@@ -245,16 +259,19 @@ contract Collections {
         );
 
         // Store MediaData for buyer
-        tokenToMediaData[nextGlobalToken] = mediaData;
+        tokenToMediaData[_userTokenId] = mediaData;
     }
 
-    function _storeBidShares(uint256 _tokenId) private {
+    function _storeBidShares(uint256 _collectionId, uint256 _userTokenId)
+        private
+    {
+        uint256 _collectionTokenId = collections[_collectionId].tokenId;
         // Get BidShares from collection's token id
         Market.BidShares memory bidShares = Market(marketContract)
-            .bidSharesForToken(_tokenId);
+            .bidSharesForToken(_collectionTokenId);
 
         // Store BidShares for buyer
-        tokenToBidShares[nextGlobalToken] = bidShares;
+        tokenToBidShares[_userTokenId] = bidShares;
     }
 
     function _sendFunds(address payable _creator, uint256 _amount) private {
