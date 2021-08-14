@@ -14,8 +14,8 @@ import "./Market.sol";
 contract Collections {
     // ============ Constants ============
 
-    // Deployment address
-    address private _owner;
+    // Contract deployment address
+    address private owner;
     // Zora media address
     address public mediaContract;
     // Zora market address
@@ -30,9 +30,9 @@ contract Collections {
         // Price of each NFT
         uint256 price;
         // Address to pay creator
-        address payable creator;
+        address payable fundsAddress;
         // Token id of media minted on Zora representing this collection
-        uint256 tokenId;
+        uint256 zMediaId;
         // Amount of NFTs sold
         uint256 sold;
     }
@@ -41,7 +41,7 @@ contract Collections {
 
     // Mapping of collection id to collection struct
     mapping(uint256 => Collection) public collections;
-    // Mapping of collection id to amount of funds creator has withdrawn
+    // Mapping of collection id to amount of its funds withdrawn by creator
     mapping(uint256 => uint256) public amountWithdrawnToCreator;
     // Mapping of purchased token id to buyer
     mapping(uint256 => address) public tokenToBuyer;
@@ -49,17 +49,18 @@ contract Collections {
     mapping(uint256 => Media.MediaData) private tokenToMediaData;
     // Mapping of token id to bid shares
     mapping(uint256 => Market.BidShares) private tokenToBidShares;
+
     // Collection id counter
     uint256 private nextCollectionId = 1;
-    // Counter of all collection token ids
-    uint256 private nextGlobalToken = 1;
+    // Token id counter
+    uint256 private nextTokenId = 1;
 
     // ============ Events ============
 
     // Collection creation event
     event CollectionCreated(
         uint256 indexed collectionId,
-        uint256 indexed tokenId,
+        uint256 indexed zMediaId,
         address creator,
         uint256 supply,
         uint256 price
@@ -69,68 +70,68 @@ contract Collections {
     event CollectionPurchased(
         uint256 indexed collectionId,
         address indexed buyer,
-        uint256 indexed tokenId
+        uint256 tokenId
     );
 
     // ============ Modifers ============
 
-    // Only contract deployer can set Zora media and market contract addresses
+    // Only the contract deployer can set the media and market contract addresses
     modifier onlyContractOwner() {
-        require(msg.sender == _owner, "You did not deploy this contract.");
+        require(msg.sender == owner, "You did not deploy this contract.");
         _;
     }
 
-    // Only the owner of token is allowed to create a collection of it
-    modifier onlyCreator(uint256 _tokenId) {
+    // Only the owner of a media minted on Zora can create a collection of it
+    modifier onlyMediaOwner(uint256 zMediaId) {
         require(
-            msg.sender == Media(mediaContract).tokenCreators(_tokenId),
+            msg.sender == Media(mediaContract).tokenCreators(zMediaId),
             "You do not own this token."
         );
         _;
     }
-    // Only the buyer of a token can receive its generated MediaData and BidShares before minting
-    modifier onlyBuyer(uint256 _tokenId) {
+    // Only the buyer of a token can access its data for minting
+    modifier onlyBuyer(uint256 tokenId) {
         require(
-            msg.sender == tokenToBuyer[_tokenId],
-            "You did not buy this token."
+            msg.sender == tokenToBuyer[tokenId],
+            "You did not purchase this token."
         );
         _;
     }
 
     // ============ Constructor ============
     constructor() {
-        _owner = msg.sender;
+        owner = msg.sender;
     }
 
     // ============ Collection Methods ============
 
     /**
-     * Enables an NFT owner to create a collection, specifying parameters
-     * @param _supply number of NFTs to create as part of the collection
-     * @param _price price to set for each NFT
-     * @param _creator address to receive funds
-     * @param _tokenId id of media owned on Zora to create collection for
+     * Enables an Zora media owner to create a collection, specifying parameters
+     * @param supply number of NFTs to create as part of the collection
+     * @param price price to set for each NFT
+     * @param fundsAddress address to receive funds
+     * @param zMediaId id of media owned on Zora to create collection for
      */
     function createCollection(
-        uint256 _supply,
-        uint256 _price,
-        address payable _creator,
-        uint256 _tokenId
-    ) public onlyCreator(_tokenId) {
+        uint256 supply,
+        uint256 price,
+        address payable fundsAddress,
+        uint256 zMediaId
+    ) public onlyMediaOwner(zMediaId) {
         collections[nextCollectionId] = Collection({
-            supply: _supply,
-            price: _price,
-            creator: _creator,
-            tokenId: _tokenId,
+            supply: supply,
+            price: price,
+            fundsAddress: fundsAddress,
+            zMediaId: zMediaId,
             sold: 0
         });
 
         emit CollectionCreated(
             nextCollectionId,
-            _tokenId,
-            _creator,
-            _supply,
-            _price
+            zMediaId,
+            msg.sender,
+            supply,
+            price
         );
 
         nextCollectionId++;
@@ -138,115 +139,107 @@ contract Collections {
 
     /**
      * Enables anyone to own a piece of a collection, specifying parameter
-     * @param _collectionId id of collection to purchase a piece of
+     * @param collectionId id of collection to purchase a piece of
      */
-    function buyCollection(uint256 _collectionId)
-        external
-        payable
-        returns (uint256)
-    {
+    function buyCollection(uint256 collectionId) external payable {
         require(
-            collections[_collectionId].supply > 0,
+            collections[collectionId].supply > 0,
             "Collection does not exist."
         );
         require(
-            collections[_collectionId].sold < collections[_collectionId].supply,
+            collections[collectionId].sold < collections[collectionId].supply,
             "Collection sold out :("
         );
         require(
-            msg.value == collections[_collectionId].price,
+            msg.value == collections[collectionId].price,
             "Must send enough to purchase from this collection."
         );
-        uint256 userTokenId = nextGlobalToken;
+        uint256 tokenId = nextTokenId;
 
-        // Generate and store token's MediaData for buyer to mint
-        _storeMediaData(_collectionId, userTokenId);
-        // Store token's BidShares for buyer to mint
-        _storeBidShares(_collectionId, userTokenId);
+        _storeMediaData(collectionId, tokenId);
+        _storeBidShares(collectionId, tokenId);
 
-        // Store buyer as owner of this token
-        tokenToBuyer[userTokenId] = msg.sender;
+        tokenToBuyer[tokenId] = msg.sender;
 
-        emit CollectionPurchased(_collectionId, msg.sender, userTokenId);
+        emit CollectionPurchased(collectionId, msg.sender, tokenId);
 
-        collections[_collectionId].sold++;
-        nextGlobalToken++;
-
-        return userTokenId;
+        collections[collectionId].sold++;
+        nextTokenId++;
     }
 
     /**
-     * Provides buyer MediaData to mint a token purchased from a collection , specifying parameter
-     * @param _tokenId id of the token purchased
+     * Provides a buyer of a token its MediaData to mint on Zora, specifying parameter
+     * @param tokenId id of the token purchased
      */
-    function collectionMediaData(uint256 _tokenId)
+    function collectionMediaData(uint256 tokenId)
         public
         view
-        onlyBuyer(_tokenId)
+        onlyBuyer(tokenId)
         returns (Media.MediaData memory)
     {
-        return tokenToMediaData[_tokenId];
+        return tokenToMediaData[tokenId];
     }
 
     /**
-     * Provides buyer BidShares to mint a token purchased from a collection, specifying parameter
-     * @param _tokenId id of the token purchased
+     * Provides a buyer of a token its BidShares to mint on Zora, specifying parameter
+     * @param tokenId id of the token purchased
      */
-    function collectionBidShares(uint256 _tokenId)
+    function collectionBidShares(uint256 tokenId)
         public
         view
-        onlyBuyer(_tokenId)
+        onlyBuyer(tokenId)
         returns (Market.BidShares memory)
     {
-        return tokenToBidShares[_tokenId];
+        return tokenToBidShares[tokenId];
     }
 
     // ============ Operational Methods ============
 
     /**
      * Enables creator to withdraw funds received for a collection at any time, specifying parameter
-     * @param _collectionId id of collection to withdraw funds from
+     * @param collectionId id of collection to withdraw funds from
      */
-    function withdrawFunds(uint256 _collectionId) external {
-        uint256 amountRemaining = (collections[_collectionId].price *
-            collections[_collectionId].sold) -
-            amountWithdrawnToCreator[_collectionId];
+    function withdrawFunds(uint256 collectionId) external {
+        uint256 amountRemaining = (collections[collectionId].price *
+            collections[collectionId].sold) -
+            amountWithdrawnToCreator[collectionId];
 
-        amountWithdrawnToCreator[_collectionId] += amountRemaining;
-        _sendFunds(collections[_collectionId].creator, amountRemaining);
+        amountWithdrawnToCreator[collectionId] += amountRemaining;
+        _sendFunds(collections[collectionId].fundsAddress, amountRemaining);
     }
 
-    function setMediaAddress(address _address) external onlyContractOwner {
-        mediaContract = _address;
+    function setMediaAddress(address mediaAddress) external onlyContractOwner {
+        mediaContract = mediaAddress;
     }
 
-    function setMarketAddress(address _address) external onlyContractOwner {
-        marketContract = _address;
+    function setMarketAddress(address marketAddress)
+        external
+        onlyContractOwner
+    {
+        marketContract = marketAddress;
     }
 
     // ============ Private Methods ============
-    function _storeMediaData(uint256 _collectionId, uint256 _userTokenId)
+    function _storeMediaData(uint256 collectionId, uint256 userTokenId)
         private
     {
-        uint256 _collectionTokenId = collections[_collectionId].tokenId;
+        uint256 zMediaId = collections[collectionId].zMediaId;
         // Get collection's token uri
-        string memory tokenURI = Media(mediaContract).tokenURI(
-            _collectionTokenId
-        );
+        string memory tokenURI = Media(mediaContract).tokenURI(zMediaId);
         // Get collection's token metadata uri
         string memory tokenMetadataURI = Media(mediaContract).tokenMetadataURI(
-            _collectionTokenId
+            zMediaId
         );
         // Get collection's token metadata hash
         bytes32 tokenMetadataHash = Media(mediaContract).tokenMetadataHashes(
-            _collectionTokenId
+            zMediaId
         );
         // Generate new content hash for token to mint
         bytes32 newContentHash = keccak256(
             // Hash of collection's token id + current amount sold counter + current time
             abi.encode(
-                _collectionTokenId,
-                collections[_collectionId].sold,
+                zMediaId,
+                collections[collectionId].sold,
                 block.timestamp
             )
         );
@@ -258,29 +251,28 @@ contract Collections {
             tokenMetadataHash
         );
 
-        // Store MediaData for buyer
-        tokenToMediaData[_userTokenId] = mediaData;
+        // Store MediaData for buyer to access
+        tokenToMediaData[userTokenId] = mediaData;
     }
 
-    function _storeBidShares(uint256 _collectionId, uint256 _userTokenId)
+    function _storeBidShares(uint256 collectionId, uint256 userTokenId)
         private
     {
-        uint256 _collectionTokenId = collections[_collectionId].tokenId;
         // Get BidShares from collection's token id
         Market.BidShares memory bidShares = Market(marketContract)
-            .bidSharesForToken(_collectionTokenId);
+            .bidSharesForToken(collections[collectionId].zMediaId);
 
-        // Store BidShares for buyer
-        tokenToBidShares[_userTokenId] = bidShares;
+        // Store BidShares for buyer to access
+        tokenToBidShares[userTokenId] = bidShares;
     }
 
-    function _sendFunds(address payable _creator, uint256 _amount) private {
+    function _sendFunds(address payable fundsAddress, uint256 amount) private {
         require(
-            address(this).balance >= _amount,
+            address(this).balance >= amount,
             "Insufficient balance to send"
         );
 
-        (bool success, ) = _creator.call{value: _amount}("");
+        (bool success, ) = fundsAddress.call{value: amount}("");
         require(success, "Unable to send: creator may have reverted");
     }
 }
