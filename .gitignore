@@ -14,4 +14,3 @@ scripts/local.ts
 scripts/utils.ts
 scripts/Collections.ts
 typechain/
-abi/
