@@ -122,6 +122,7 @@ contract Zeditions {
     }
 
     // ============ Constructor ============
+    
     constructor() {
         owner = msg.sender;
     }
@@ -237,6 +238,7 @@ contract Zeditions {
     }
 
     // ============ Private Methods ============
+
     function _storeMediaData(uint256 editionId, uint256 userTokenId)
         private
     {

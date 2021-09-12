@@ -6,14 +6,12 @@ async function main() {
     console.log('\nDeploying contracts with the account:', owner.address)
     console.log('Account balance:', (await owner.getBalance()).toString())
 
-    const Collections = await ethers.getContractFactory('Collections')
-    const collections = await Collections.deploy()
-    await collections.deployed()
+    const Zeditions = await ethers.getContractFactory('Zeditions')
+    const zeditions = await Zeditions.deploy()
+    await zeditions.deployed()
 
-    console.log(`\nCollections Contract deployed at: ${collections.address}`)
-    console.log(
-        `Collections Contract signed by: ${collections.signer.getAddress()}\n`
-    )
+    console.log(`Zeditions Contract deployed at: ${zeditions.address}`)
+    console.log(`Zeditions Contract signed by: ${zeditions.signer.getAddress()}\n`)
 }
 
 main()
