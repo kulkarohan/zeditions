@@ -1,4 +1,4 @@
-# Zora Collections [WIP]
+# Zora Editions [WIP]
 
 ## Overview
 
