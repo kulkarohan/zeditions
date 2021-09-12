@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-pragma solidity 0.8.4;
+pragma solidity 0.8.7;
 
-import {Market} from "./Market.sol";
+import {IMarket} from "./IMarket.sol";
 
-interface Media {
+interface IMedia {
     struct EIP712Signature {
         uint256 deadline;
         uint8 v;
@@ -43,13 +43,13 @@ interface Media {
         view
         returns (bytes32);
 
-    function mint(MediaData calldata data, Market.BidShares calldata bidShares)
+    function mint(MediaData calldata data, IMarket.BidShares calldata bidShares)
         external;
 
     function mintWithSig(
         address creator,
         MediaData calldata data,
-        Market.BidShares calldata bidShares,
+        IMarket.BidShares calldata bidShares,
         EIP712Signature calldata sig
     ) external;
 }

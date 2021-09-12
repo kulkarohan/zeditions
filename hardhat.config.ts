@@ -11,24 +11,24 @@ const RINKEBY_DEPLOY_PK: string = process.env.RINKEBY_DEPLOY_PK ?? ''
 
 const config: HardhatUserConfig = {
     solidity: {
-        version: '0.8.4',
+        version: '0.8.7',
         settings: {
             optimizer: {
                 enabled: true,
-                runs: 2000,
-            },
-        },
+                runs: 2000
+            }
+        }
     },
     typechain: {
         outDir: 'typechain',
-        target: 'ethers-v5',
+        target: 'ethers-v5'
     },
     networks: {
         rinkeby: {
             url: `https://rinkeby.infura.io/v3/${INFURA_API_KEY}`,
-            accounts: [`0x${RINKEBY_DEPLOY_PK}`],
-        },
-    },
+            accounts: [`0x${RINKEBY_DEPLOY_PK}`]
+        }
+    }
 }
 
 export default config

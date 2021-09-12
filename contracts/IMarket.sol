@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-pragma solidity 0.8.4;
+pragma solidity 0.8.7;
 
 import {Decimal} from "./Decimal.sol";
 
-interface Market {
+interface IMarket {
     struct BidShares {
         // % of sale value that goes to the _previous_ owner of the nft
         Decimal.D256 prevOwner;
